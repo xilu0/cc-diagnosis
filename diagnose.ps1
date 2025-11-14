@@ -298,8 +298,235 @@ function Test-Network {
     }
 }
 
+function Test-ProxyAndVpn {
+    Write-Section "3.5" "Proxy & VPN Diagnostics"
+
+    # Check proxy environment variables
+    Write-Check "info" "Checking proxy environment variables..."
+    $proxyVars = @('http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY', 'no_proxy', 'NO_PROXY')
+    $proxyFound = $false
+    $proxyValues = @()
+
+    foreach ($var in $proxyVars) {
+        $value = [Environment]::GetEnvironmentVariable($var, 'Process')
+        if (-not [string]::IsNullOrEmpty($value)) {
+            $proxyFound = $true
+            Write-Check "warn" "$var: $value"
+            $proxyValues += "$var=$value"
+            Write-VerboseLog "Proxy variable detected: $var"
+
+            # Check for conflicts
+            if ($var -eq 'http_proxy') {
+                $upperValue = [Environment]::GetEnvironmentVariable('HTTP_PROXY', 'Process')
+                if (-not [string]::IsNullOrEmpty($upperValue) -and $value -ne $upperValue) {
+                    Write-Check "warn" "Conflicting proxy settings: http_proxy != HTTP_PROXY"
+                }
+            }
+        }
+    }
+
+    if (-not $proxyFound) {
+        Write-Check "ok" "No proxy environment variables set"
+    } else {
+        # Check if claude-code.club is in no_proxy
+        $noProxyValue = [Environment]::GetEnvironmentVariable('no_proxy', 'Process') +
+                       [Environment]::GetEnvironmentVariable('NO_PROXY', 'Process')
+        if ($noProxyValue -notmatch 'claude-code\.club') {
+            Write-Check "warn" "claude-code.club NOT in no_proxy list - proxy may block connection"
+            Add-Recommendation "Add to no_proxy: `$env:no_proxy=`"`$env:no_proxy,claude-code.club,.claude-code.club`""
+            Add-Recommendation "For persistence, add to System Environment Variables via System Properties"
+        } else {
+            Write-Check "ok" "claude-code.club is in no_proxy list"
+        }
+    }
+
+    # Check system proxy settings (Windows)
+    Write-VerboseLog "Checking Windows system proxy settings..."
+    try {
+        $proxySettings = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction Stop
+
+        if ($proxySettings.ProxyEnable -eq 1) {
+            Write-Check "warn" "System Proxy Enabled: $($proxySettings.ProxyServer)"
+            Write-VerboseLog "Windows system proxy is enabled"
+
+            if (-not [string]::IsNullOrEmpty($proxySettings.ProxyOverride)) {
+                Write-VerboseLog "Proxy bypass list: $($proxySettings.ProxyOverride)"
+                if ($proxySettings.ProxyOverride -notmatch 'claude-code\.club') {
+                    Write-Check "warn" "claude-code.club NOT in proxy bypass list"
+                    Add-Recommendation "Add claude-code.club to Internet Options > LAN Settings > Proxy > Bypass list"
+                }
+            }
+        } else {
+            Write-Check "ok" "System Proxy: Disabled"
+        }
+    } catch {
+        Write-VerboseLog "Unable to check system proxy settings: $($_.Exception.Message)"
+    }
+
+    # Check WinHTTP proxy (used by curl)
+    try {
+        $winhttpProxy = netsh winhttp show proxy 2>&1 | Out-String
+        if ($winhttpProxy -match "Direct access") {
+            Write-Check "ok" "WinHTTP Proxy: Direct access (no proxy)"
+        } elseif ($winhttpProxy -match "Proxy Server") {
+            Write-Check "warn" "WinHTTP Proxy: Configured"
+            Write-VerboseLog $winhttpProxy
+        }
+    } catch {
+        Write-VerboseLog "Unable to check WinHTTP proxy"
+    }
+
+    # VPN Detection
+    Write-Check "info" "Checking for active VPN connections..."
+    $vpnDetected = $false
+    $vpnAdapters = @()
+
+    # Method 1: Check built-in VPN connections
+    try {
+        $vpnConnections = Get-VpnConnection -ErrorAction SilentlyContinue | Where-Object { $_.ConnectionStatus -eq "Connected" }
+        if ($vpnConnections) {
+            $vpnDetected = $true
+            foreach ($vpn in $vpnConnections) {
+                Write-Check "warn" "VPN Connection: $($vpn.Name) (Connected)"
+                Write-VerboseLog "VPN Server: $($vpn.ServerAddress)"
+                $vpnAdapters += $vpn.Name
+            }
+        }
+    } catch {
+        Write-VerboseLog "Unable to check built-in VPN connections"
+    }
+
+    # Method 2: Check network adapters for VPN
+    try {
+        $suspectAdapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {
+            $_.InterfaceDescription -match "VPN|TAP|TUN|WireGuard|Cisco|Pulse|Palo Alto|AnyConnect|OpenVPN" -and
+            $_.Status -eq "Up"
+        }
+
+        if ($suspectAdapters) {
+            $vpnDetected = $true
+            foreach ($adapter in $suspectAdapters) {
+                Write-Check "warn" "VPN Adapter detected: $($adapter.Name) - $($adapter.InterfaceDescription)"
+                Write-VerboseLog "Adapter Status: $($adapter.Status), Speed: $($adapter.LinkSpeed)"
+                $vpnAdapters += $adapter.InterfaceAlias
+            }
+        }
+    } catch {
+        Write-VerboseLog "Unable to check network adapters"
+    }
+
+    # Method 3: Check for VPN processes
+    try {
+        $vpnProcesses = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.ProcessName -match "vpnui|vpnagent|openvpn|wireguard|NordVPN|ExpressVPN|CiscoAnyConnect"
+        }
+
+        if ($vpnProcesses) {
+            $vpnDetected = $true
+            Write-VerboseLog "VPN processes detected:"
+
+            # Identify specific VPN software
+            foreach ($proc in $vpnProcesses) {
+                if ($proc.ProcessName -match "cisco|vpn") {
+                    Write-Check "warn" "Cisco AnyConnect VPN detected"
+                    Write-VerboseLog "Process: $($proc.ProcessName) (PID: $($proc.Id))"
+                    break
+                } elseif ($proc.ProcessName -match "openvpn") {
+                    Write-Check "warn" "OpenVPN detected"
+                    Write-VerboseLog "Process: $($proc.ProcessName) (PID: $($proc.Id))"
+                    break
+                } elseif ($proc.ProcessName -match "wireguard") {
+                    Write-Check "warn" "WireGuard VPN detected"
+                    Write-VerboseLog "Process: $($proc.ProcessName) (PID: $($proc.Id))"
+                    break
+                } elseif ($proc.ProcessName -match "nord") {
+                    Write-Check "warn" "NordVPN detected"
+                    Write-VerboseLog "Process: $($proc.ProcessName) (PID: $($proc.Id))"
+                    break
+                } elseif ($proc.ProcessName -match "express") {
+                    Write-Check "warn" "ExpressVPN detected"
+                    Write-VerboseLog "Process: $($proc.ProcessName) (PID: $($proc.Id))"
+                    break
+                }
+            }
+        }
+    } catch {
+        Write-VerboseLog "Unable to check VPN processes"
+    }
+
+    if (-not $vpnDetected) {
+        Write-Check "ok" "No active VPN detected"
+    } else {
+        Add-Recommendation "VPN detected - if experiencing connectivity issues, try disconnecting VPN temporarily"
+        Add-Recommendation "If VPN is required, ensure claude-code.club is whitelisted/bypassed in VPN configuration"
+
+        # Tunnel mode analysis
+        Write-Check "info" "Analyzing VPN tunnel mode..."
+
+        try {
+            # Check for default route (0.0.0.0/0)
+            $defaultRoutes = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue
+            Write-VerboseLog "Default routes found: $($defaultRoutes.Count)"
+
+            $fullTunnel = $false
+            foreach ($route in $defaultRoutes) {
+                Write-VerboseLog "Default route via interface: $($route.InterfaceAlias), Metric: $($route.RouteMetric)"
+
+                # Check if any default route goes through VPN adapter
+                foreach ($vpnAdapter in $vpnAdapters) {
+                    if ($route.InterfaceAlias -match $vpnAdapter) {
+                        $fullTunnel = $true
+                        Write-Check "warn" "FULL TUNNEL detected: Default route goes through $($route.InterfaceAlias)"
+                        Write-VerboseLog "All traffic is routed through VPN interface"
+                    }
+                }
+            }
+
+            if ($fullTunnel) {
+                Write-Check "warn" "All network traffic routes through VPN (full tunnel mode)"
+                Add-Recommendation "Full tunnel VPN detected - all traffic goes through VPN, including claude-code.club"
+                Add-Recommendation "If blocked, contact network admin to whitelist claude-code.club domain"
+                Add-Recommendation "Consider requesting split tunnel mode if permitted by your organization"
+            } else {
+                Write-Check "info" "Split tunnel mode detected (selective routing)"
+
+                # Check specific route to claude-code.club
+                try {
+                    $routeToApi = Find-NetRoute -RemoteIPAddress "claude-code.club" -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($routeToApi) {
+                        Write-VerboseLog "Route to claude-code.club via: $($routeToApi.InterfaceAlias)"
+
+                        foreach ($vpnAdapter in $vpnAdapters) {
+                            if ($routeToApi.InterfaceAlias -match $vpnAdapter) {
+                                Write-Check "warn" "Route to claude-code.club goes through VPN ($($routeToApi.InterfaceAlias))"
+                                Add-Recommendation "claude-code.club routes through VPN - may be blocked by corporate firewall"
+                                Add-Recommendation "Add claude-code.club to VPN split tunnel bypass list"
+                            }
+                        }
+                    }
+                } catch {
+                    Write-VerboseLog "Unable to determine route to claude-code.club: $($_.Exception.Message)"
+                }
+            }
+
+            # Show routing table in verbose mode
+            if ($script:VerboseMode) {
+                Write-Host "  [VERBOSE] Routing table (default and VPN routes):"
+                Get-NetRoute -ErrorAction SilentlyContinue |
+                    Where-Object { $_.DestinationPrefix -eq "0.0.0.0/0" -or $_.InterfaceAlias -in $vpnAdapters } |
+                    Select-Object DestinationPrefix, NextHop, InterfaceAlias, RouteMetric |
+                    Format-Table -AutoSize |
+                    Out-String |
+                    ForEach-Object { "    $_" }
+            }
+        } catch {
+            Write-VerboseLog "Error analyzing tunnel mode: $($_.Exception.Message)"
+        }
+    }
+}
+
 function Test-Installation {
-    Write-Section "4" "Installation Discovery"
+    Write-Section "5" "Installation Discovery"
 
     # Find Claude Code binary
     $claudeCmd = Get-Command claude -ErrorAction SilentlyContinue
@@ -338,7 +565,7 @@ function Test-Installation {
 }
 
 function Test-Configuration {
-    Write-Section "5" "Configuration Files"
+    Write-Section "6" "Configuration Files"
 
     $configLocations = @(
         "$env:APPDATA\claude-code",
@@ -471,6 +698,7 @@ function Main {
         if ($envOk) {
             Test-Authentication
             Test-Network
+            Test-ProxyAndVpn
             Test-Installation
             Test-Configuration
             Write-Report

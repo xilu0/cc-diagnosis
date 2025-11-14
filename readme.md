@@ -132,14 +132,25 @@ chmod +x diagnose.sh
 - **API Connectivity**: Performs actual API call with authentication headers
 - **Error Detection**: Identifies specific failure patterns (timeouts, certificate errors, etc.)
 
-### 4. Installation Discovery
+### 3.5. Proxy & VPN Diagnostics
+
+- **Proxy Environment Variables**: Checks http_proxy, https_proxy, all_proxy, no_proxy settings
+- **System Proxy Settings**: Validates macOS/Windows system-wide proxy configuration
+- **Proxy Bypass Lists**: Ensures claude-code.club is in bypass/no_proxy list if proxy is configured
+- **VPN Detection**: Identifies active VPN connections (Cisco AnyConnect, OpenVPN, WireGuard, NordVPN, etc.)
+- **VPN Interface Analysis**: Detects VPN network adapters and their status
+- **Tunnel Mode Detection**: Determines if VPN uses full tunnel (all traffic) or split tunnel (selective routing)
+- **Route Analysis**: Checks if traffic to claude-code.club routes through VPN
+- **Corporate Network Impact**: Warns about potential firewall blocking when VPN is active
+
+### 5. Installation Discovery
 
 - Locates Claude Code binary in system PATH
 - Detects installation method (npm, Homebrew, manual)
 - Reports current version
 - Warns about multiple installations
 
-### 5. Configuration Files
+### 6. Configuration Files
 
 - Checks for config directories (`~/.config/claude-code`, etc.)
 - Scans environment files for ANTHROPIC variables
@@ -172,13 +183,22 @@ Date: 2025-01-14 10:30:45
 ✓ TLS Handshake: Successful
 ✓ API Connection: Successful (HTTP 200)
 
-[4] Installation Discovery
+[3.5] Proxy & VPN Diagnostics
+----------------------------------------
+  Checking proxy environment variables...
+✓ No proxy environment variables set
+✓ System HTTP Proxy: Disabled
+✓ System HTTPS Proxy: Disabled
+  Checking for active VPN connections...
+✓ No active VPN detected
+
+[5] Installation Discovery
 ----------------------------------------
 ✓ Claude Code: Found at /opt/homebrew/bin/claude
   Version: 1.2.3
   Installation method: Homebrew
 
-[5] Configuration Files
+[6] Configuration Files
 ----------------------------------------
 ✓ Config directory: /Users/username/.config/claude-code
   Checking environment files for Claude Code variables...
@@ -271,6 +291,73 @@ which -a claude
 
 # Remove unwanted versions
 # Example: npm install -g @anthropic-ai/claude-code (to reinstall)
+```
+
+### Issue: "Proxy detected but claude-code.club not in no_proxy list"
+
+**Causes:**
+- HTTP/HTTPS proxy is configured
+- claude-code.club is not in the proxy bypass list
+
+**Solution:**
+```bash
+# macOS/Linux: Add to no_proxy environment variable
+export no_proxy="$no_proxy,claude-code.club,.claude-code.club"
+echo 'export no_proxy="$no_proxy,claude-code.club,.claude-code.club"' >> ~/.zshrc
+
+# Windows: Add to no_proxy environment variable
+$env:no_proxy="$env:no_proxy,claude-code.club,.claude-code.club"
+# For persistence, add via System Properties → Environment Variables
+
+# Windows: Add to system proxy bypass list
+# Control Panel → Internet Options → Connections → LAN Settings → Proxy → Bypass
+# Add: claude-code.club;*.claude-code.club
+```
+
+### Issue: "VPN detected" or "Full tunnel VPN detected"
+
+**Causes:**
+- Active VPN connection routing traffic through corporate network
+- Full tunnel mode routes ALL traffic through VPN
+- Corporate firewall may block claude-code.club
+
+**Solution:**
+
+**Option 1: Temporary VPN Disconnect** (if permitted)
+```bash
+# Test connectivity without VPN
+# Disconnect VPN → Run diagnostic → Check if issue resolved
+```
+
+**Option 2: VPN Split Tunnel Configuration** (preferred)
+```bash
+# Request network admin to configure split tunnel
+# Add claude-code.club to VPN bypass/local routing list
+
+# Common VPN software bypass lists:
+# - Cisco AnyConnect: Add to "Local LAN Access" or split tunnel exclude
+# - OpenVPN: Modify route configuration
+# - WireGuard: Configure AllowedIPs to exclude claude-code.club IP range
+```
+
+**Option 3: Firewall Whitelist** (for corporate environments)
+```bash
+# Request network/security team to whitelist:
+# Domain: claude-code.club, *.claude-code.club
+# IP range: (obtain via: dig claude-code.club)
+# Ports: 443 (HTTPS)
+```
+
+**Option 4: Test Route** (diagnostic)
+```bash
+# macOS/Linux: Check route to claude-code.club
+route -n get claude-code.club
+
+# Windows: Check route to claude-code.club
+Find-NetRoute -RemoteIPAddress "claude-code.club"
+
+# If route goes through VPN interface (utun, TAP, etc.),
+# that's why it's being blocked
 ```
 
 ## Requirements

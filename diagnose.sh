@@ -255,8 +255,182 @@ check_network() {
     fi
 }
 
+check_proxy_vpn() {
+    print_section "3.5" "Proxy & VPN Diagnostics"
+
+    # Check proxy environment variables
+    print_check "info" "Checking proxy environment variables..."
+    local proxy_vars=(http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY)
+    local proxy_found=false
+    local proxy_values=()
+
+    for var in "${proxy_vars[@]}"; do
+        local var_value=$(eval echo \$$var)
+        if [[ -n "$var_value" ]]; then
+            proxy_found=true
+            print_check "warn" "$var: $var_value"
+            proxy_values+=("$var=$var_value")
+            verbose_log "Proxy variable detected: $var"
+
+            # Check if it's lowercase and uppercase both set
+            if [[ "$var" == "http_proxy" ]] && [[ -n "$HTTP_PROXY" ]]; then
+                if [[ "$var_value" != "$HTTP_PROXY" ]]; then
+                    print_check "warn" "Conflicting proxy settings: http_proxy != HTTP_PROXY"
+                fi
+            fi
+        fi
+    done
+
+    if [[ "$proxy_found" == false ]]; then
+        print_check "ok" "No proxy environment variables set"
+    else
+        # Check if claude-code.club is in no_proxy
+        local no_proxy_value="${no_proxy}${NO_PROXY}"
+        if [[ ! "$no_proxy_value" =~ claude-code\.club ]]; then
+            print_check "warn" "claude-code.club NOT in no_proxy list - proxy may block connection"
+            add_recommendation "Add to no_proxy: export no_proxy=\"\$no_proxy,claude-code.club,.claude-code.club\""
+            add_recommendation "For persistence, add to ~/.zshrc: echo 'export no_proxy=\"\$no_proxy,claude-code.club\"' >> ~/.zshrc"
+        else
+            print_check "ok" "claude-code.club is in no_proxy list"
+        fi
+    fi
+
+    # Check system proxy settings (macOS)
+    if command -v scutil &> /dev/null; then
+        verbose_log "Checking macOS system proxy settings..."
+        local proxy_info=$(scutil --proxy 2>/dev/null)
+
+        if echo "$proxy_info" | grep -q "HTTPEnable.*1"; then
+            local http_proxy_host=$(echo "$proxy_info" | grep 'HTTPProxy :' | awk '{print $3}')
+            local http_proxy_port=$(echo "$proxy_info" | grep 'HTTPPort :' | awk '{print $3}')
+            if [[ -n "$http_proxy_host" ]]; then
+                print_check "warn" "System HTTP Proxy: $http_proxy_host:$http_proxy_port"
+                verbose_log "macOS system HTTP proxy is enabled"
+            fi
+        else
+            print_check "ok" "System HTTP Proxy: Disabled"
+        fi
+
+        if echo "$proxy_info" | grep -q "HTTPSEnable.*1"; then
+            local https_proxy_host=$(echo "$proxy_info" | grep 'HTTPSProxy :' | awk '{print $3}')
+            local https_proxy_port=$(echo "$proxy_info" | grep 'HTTPSPort :' | awk '{print $3}')
+            if [[ -n "$https_proxy_host" ]]; then
+                print_check "warn" "System HTTPS Proxy: $https_proxy_host:$https_proxy_port"
+                verbose_log "macOS system HTTPS proxy is enabled"
+            fi
+        else
+            print_check "ok" "System HTTPS Proxy: Disabled"
+        fi
+    fi
+
+    # VPN Detection
+    print_check "info" "Checking for active VPN connections..."
+    local vpn_detected=false
+    local vpn_interfaces=()
+    local vpn_info=""
+
+    # Method 1: Check for VPN interfaces
+    local vpn_if_list=$(ifconfig 2>/dev/null | grep -E "^(utun|tun|tap|ppp)" | cut -d: -f1)
+    if [[ -n "$vpn_if_list" ]]; then
+        while IFS= read -r interface; do
+            if ifconfig "$interface" 2>/dev/null | grep -q "inet"; then
+                vpn_detected=true
+                vpn_interfaces+=("$interface")
+                local vpn_ip=$(ifconfig "$interface" 2>/dev/null | grep "inet " | awk '{print $2}')
+                print_check "warn" "VPN Interface detected: $interface (IP: $vpn_ip)"
+                verbose_log "VPN interface $interface is active with IP $vpn_ip"
+                vpn_info="$interface"
+            fi
+        done <<< "$vpn_if_list"
+    fi
+
+    # Method 2: Check scutil for VPN connections (macOS)
+    if command -v scutil &> /dev/null; then
+        local vpn_connections=$(scutil --nc list 2>/dev/null | grep "Connected")
+        if [[ -n "$vpn_connections" ]]; then
+            vpn_detected=true
+            print_check "warn" "Active VPN connection(s) detected"
+            verbose_log "VPN connections: $vpn_connections"
+        fi
+    fi
+
+    # Method 3: Check for common VPN processes
+    local vpn_processes=$(ps aux 2>/dev/null | grep -iE "openvpn|cisco|anyconnect|wireguard|nordvpn|expressvpn|tunnelblick" | grep -v grep)
+    if [[ -n "$vpn_processes" ]]; then
+        vpn_detected=true
+        verbose_log "VPN processes detected:"
+        verbose_log "$vpn_processes"
+
+        # Identify specific VPN software
+        if echo "$vpn_processes" | grep -qi "cisco\|anyconnect"; then
+            print_check "warn" "Cisco AnyConnect VPN detected"
+        elif echo "$vpn_processes" | grep -qi "openvpn"; then
+            print_check "warn" "OpenVPN detected"
+        elif echo "$vpn_processes" | grep -qi "wireguard"; then
+            print_check "warn" "WireGuard VPN detected"
+        elif echo "$vpn_processes" | grep -qi "nordvpn"; then
+            print_check "warn" "NordVPN detected"
+        elif echo "$vpn_processes" | grep -qi "expressvpn"; then
+            print_check "warn" "ExpressVPN detected"
+        elif echo "$vpn_processes" | grep -qi "tunnelblick"; then
+            print_check "warn" "Tunnelblick VPN detected"
+        fi
+    fi
+
+    if [[ "$vpn_detected" == false ]]; then
+        print_check "ok" "No active VPN detected"
+    else
+        add_recommendation "VPN detected - if experiencing connectivity issues, try disconnecting VPN temporarily"
+        add_recommendation "If VPN is required, ensure claude-code.club is whitelisted/bypassed in VPN configuration"
+
+        # Tunnel mode analysis
+        print_check "info" "Analyzing VPN tunnel mode..."
+
+        # Check for default route through VPN
+        local default_route=$(netstat -rn 2>/dev/null | grep "^default\|^0.0.0.0" | head -n1)
+        verbose_log "Default route: $default_route"
+
+        local full_tunnel=false
+        for vpn_if in "${vpn_interfaces[@]}"; do
+            if echo "$default_route" | grep -q "$vpn_if"; then
+                full_tunnel=true
+                print_check "warn" "FULL TUNNEL detected: Default route goes through $vpn_if"
+                verbose_log "All traffic is routed through VPN interface $vpn_if"
+            fi
+        done
+
+        if [[ "$full_tunnel" == true ]]; then
+            print_check "warn" "All network traffic routes through VPN (full tunnel mode)"
+            add_recommendation "Full tunnel VPN detected - all traffic goes through VPN, including claude-code.club"
+            add_recommendation "If blocked, contact network admin to whitelist claude-code.club domain"
+            add_recommendation "Consider requesting split tunnel mode if permitted by your organization"
+        else
+            print_check "info" "Split tunnel mode detected (selective routing)"
+
+            # Check specific route to claude-code.club
+            local route_to_api=$(route -n get claude-code.club 2>/dev/null | grep "interface:" | awk '{print $2}')
+            if [[ -n "$route_to_api" ]]; then
+                verbose_log "Route to claude-code.club: $route_to_api"
+                for vpn_if in "${vpn_interfaces[@]}"; do
+                    if [[ "$route_to_api" == "$vpn_if" ]]; then
+                        print_check "warn" "Route to claude-code.club goes through VPN ($vpn_if)"
+                        add_recommendation "claude-code.club routes through VPN - may be blocked by corporate firewall"
+                        add_recommendation "Add claude-code.club to VPN split tunnel bypass list"
+                    fi
+                done
+            fi
+        fi
+
+        # Show routing table in verbose mode
+        if [[ "$VERBOSE" == true ]]; then
+            echo "  [VERBOSE] Routing table:"
+            netstat -rn 2>/dev/null | grep -E "^default|^0\.0\.0\.0|utun|tun|tap|ppp" | sed 's/^/    /'
+        fi
+    fi
+}
+
 check_installation() {
-    print_section "4" "Installation Discovery"
+    print_section "5" "Installation Discovery"
 
     # Find Claude Code binary
     local claude_locations=(
@@ -309,7 +483,7 @@ check_installation() {
 }
 
 check_configuration() {
-    print_section "5" "Configuration Files"
+    print_section "6" "Configuration Files"
 
     local config_locations=(
         "$HOME/.config/claude-code"
@@ -462,6 +636,7 @@ main() {
     check_environment
     check_authentication
     check_network
+    check_proxy_vpn
     check_installation
     check_configuration
     generate_report
