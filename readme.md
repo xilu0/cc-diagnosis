@@ -18,7 +18,56 @@ This tool helps diagnose common problems when connecting to the Claude Code API 
 
 ## Quick Start
 
-### macOS/Linux
+### Direct Execution (No Download Required)
+
+Run the diagnostic tool directly from GitHub without cloning the repository:
+
+#### macOS/Linux
+
+```bash
+# Basic diagnostics
+curl -fsSL https://raw.githubusercontent.com/xilu0/cc-diagnosis/main/diagnose.sh | zsh
+
+# With verbose output
+curl -fsSL https://raw.githubusercontent.com/xilu0/cc-diagnosis/main/diagnose.sh | zsh -s -- --verbose
+
+# Save output to file
+curl -fsSL https://raw.githubusercontent.com/xilu0/cc-diagnosis/main/diagnose.sh | zsh -s -- --output diagnostic-report.txt
+
+# With verbose and output
+curl -fsSL https://raw.githubusercontent.com/xilu0/cc-diagnosis/main/diagnose.sh | zsh -s -- --verbose --output report.txt
+```
+
+#### Windows
+
+```powershell
+# Basic diagnostics
+irm https://raw.githubusercontent.com/xilu0/cc-diagnosis/main/diagnose.ps1 | iex
+
+# With verbose output
+irm https://raw.githubusercontent.com/xilu0/cc-diagnosis/main/diagnose.ps1 | iex; .\diagnose.ps1 -Verbose
+
+# Alternative: Download and execute with parameters
+$script = irm https://raw.githubusercontent.com/xilu0/cc-diagnosis/main/diagnose.ps1
+Invoke-Expression $script -Verbose -Output report.txt
+```
+
+> **Security Note**: Always review scripts before executing them directly from the internet. You can inspect the script first:
+> ```bash
+> # macOS/Linux: View script content
+> curl -fsSL https://raw.githubusercontent.com/xilu0/cc-diagnosis/main/diagnose.sh | less
+>
+> # Windows: View script content
+> irm https://raw.githubusercontent.com/xilu0/cc-diagnosis/main/diagnose.ps1
+> ```
+
+---
+
+### Local Execution (Downloaded Repository)
+
+If you prefer to clone the repository first:
+
+#### macOS/Linux
 
 ```bash
 # Make the script executable (first time only)
@@ -37,7 +86,7 @@ chmod +x diagnose.sh
 ./diagnose.sh --fix
 ```
 
-### Windows
+#### Windows
 
 ```powershell
 # Run basic diagnostics
