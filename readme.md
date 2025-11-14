@@ -1,5 +1,7 @@
 # Claude Code Diagnostic Tool
 
+English | [简体中文](README_CN.md)
+
 A cross-platform diagnostic utility for troubleshooting Claude Code connectivity, authentication, and installation issues.
 
 ## Overview
@@ -10,6 +12,9 @@ This tool helps diagnose common problems when connecting to the Claude Code API 
 - **Network**: Tests DNS resolution, TLS handshakes, and API connectivity
 - **Installation**: Locates Claude Code binaries and verifies versions
 - **Configuration**: Examines environment variables and config files
+- **Proxy & VPN**: Detects proxy settings and VPN connections that may interfere with connectivity
+
+> **📖 For Claude Code Runtime Issues**: If Claude Code itself appears stuck, slow, or unresponsive (not network connectivity issues), see the **[DEBUG.md](DEBUG.md)** guide for detailed debugging instructions including `--verbose`, log analysis, and performance optimization.
 
 ## Supported Platforms
 
@@ -422,6 +427,13 @@ Contributions are welcome! If you encounter issues or have suggestions:
 4. Submit a pull request
 
 ## Support
+
+### Diagnostic Tools
+
+- **Network Connectivity Issues**: Use `diagnose.sh` (macOS/Linux) or `diagnose.ps1` (Windows) from this repository
+- **Claude Code Runtime Issues**: See [DEBUG.md](DEBUG.md) for debugging stuck processes, slow responses, and performance optimization
+
+### External Resources
 
 For Claude Code related issues:
 - Official Documentation: [https://docs.anthropic.com](https://docs.anthropic.com)
