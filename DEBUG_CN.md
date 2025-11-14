@@ -713,6 +713,105 @@ alias claude-monitor='watch -n 1 "ps aux | grep claude | grep -v grep"'
 claude-monitor
 ```
 
+### API 响应延迟测试
+
+测试 API 响应时间有助于识别速度慢是由网络问题、API 服务器性能还是本地处理造成的。
+
+#### 测量命令执行时间
+
+**macOS/Linux:**
+```bash
+# 测试基本的 API 响应时间
+time claude -p "hi"
+
+# 示例输出:
+# real    0m2.347s    # 总耗时（挂钟时间）
+# user    0m0.234s    # 用户模式下的 CPU 时间
+# sys     0m0.056s    # 系统模式下的 CPU 时间
+```
+
+**Windows (PowerShell):**
+```powershell
+# 测试基本的 API 响应时间
+Measure-Command { claude -p "hi" }
+
+# 示例输出:
+# TotalSeconds      : 2.3471234
+# TotalMilliseconds : 2347.1234
+```
+
+#### 解读结果
+
+| 响应时间 | 状态 | 可能原因 |
+|---------|------|---------|
+| < 10 秒 | 优秀 | 正常运行 |
+| 12-15 秒 | 良好 | 典型的 API 延迟 |
+| 15-20 秒 | 较慢 | 网络拥塞或 API 负载 |
+| 20-30 秒 | 非常慢 | 连接问题，检查网络 |
+| > 30 秒 | 超时风险 | 运行 `./diagnose.sh` 进行网络诊断 |
+
+#### 基线测试
+
+为你的环境建立基线:
+
+```bash
+# macOS/Linux: 运行多次测试
+for i in {1..5}; do
+  echo "测试 $i:"
+  time claude -p "hi" 2>&1 | grep real
+done
+
+# Windows (PowerShell): 运行多次测试
+1..5 | ForEach-Object {
+  Write-Host "测试 $_:"
+  (Measure-Command { claude -p "hi" }).TotalSeconds
+}
+```
+
+#### 排查高延迟问题
+
+**如果延迟持续很高 (>10秒):**
+
+1. **检查网络连接:**
+```bash
+# 运行诊断脚本
+./diagnose.sh  # macOS/Linux
+.\diagnose.ps1  # Windows
+```
+
+2. **测试直接 API 访问:**
+```bash
+# macOS/Linux
+curl -w "\n时间: %{time_total}s\n" \
+  -H "x-api-key: $ANTHROPIC_AUTH_TOKEN" \
+  -H "anthropic-version: 2023-06-01" \
+  https://claude-code.club/api/v1/models
+
+# Windows (PowerShell)
+Measure-Command {
+  Invoke-WebRequest -Uri "https://claude-code.club/api/v1/models" `
+    -Headers @{
+      "x-api-key" = $env:ANTHROPIC_AUTH_TOKEN
+      "anthropic-version" = "2023-06-01"
+    }
+}
+```
+
+3. **检查代理/VPN 干扰:**
+```bash
+# 临时禁用代理
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
+
+# 再次测试
+time claude -p "hi"
+```
+
+**如果延迟变化很大:**
+- 可能表明网络拥塞
+- 检查时间段模式
+- 考虑到 API 服务器的地理距离
+- 检查防火墙/杀毒软件设置
+
 ### 配置优化
 
 **全局设置（`~/.claude/settings.json`）：**

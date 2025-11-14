@@ -714,6 +714,105 @@ alias claude-monitor='watch -n 1 "ps aux | grep claude | grep -v grep"'
 claude-monitor
 ```
 
+### API Response Latency Testing
+
+Testing API response times helps identify whether slowdowns are caused by network issues, API server performance, or local processing.
+
+#### Measuring Command Execution Time
+
+**macOS/Linux:**
+```bash
+# Test basic API response time
+time claude -p "hi"
+
+# Example output:
+# real    0m2.347s    # Total wall clock time
+# user    0m0.234s    # CPU time in user mode
+# sys     0m0.056s    # CPU time in system mode
+```
+
+**Windows (PowerShell):**
+```powershell
+# Test basic API response time
+Measure-Command { claude -p "hi" }
+
+# Example output:
+# TotalSeconds      : 2.3471234
+# TotalMilliseconds : 2347.1234
+```
+
+#### Interpreting Results
+
+| Response Time | Status | Possible Cause |
+|--------------|--------|----------------|
+| < 2 seconds | Excellent | Normal operation |
+| 2-5 seconds | Good | Typical API latency |
+| 5-10 seconds | Slow | Network congestion or API load |
+| 10-30 seconds | Very Slow | Connection issues, check network |
+| > 30 seconds | Timeout Risk | Run `./diagnose.sh` for network diagnostics |
+
+#### Baseline Testing
+
+Establish a baseline for your environment:
+
+```bash
+# macOS/Linux: Run multiple tests
+for i in {1..5}; do
+  echo "Test $i:"
+  time claude -p "hi" 2>&1 | grep real
+done
+
+# Windows (PowerShell): Run multiple tests
+1..5 | ForEach-Object {
+  Write-Host "Test $_:"
+  (Measure-Command { claude -p "hi" }).TotalSeconds
+}
+```
+
+#### Troubleshooting High Latency
+
+**If latency is consistently high (>10s):**
+
+1. **Check network connectivity:**
+```bash
+# Run diagnostic script
+./diagnose.sh  # macOS/Linux
+.\diagnose.ps1  # Windows
+```
+
+2. **Test direct API access:**
+```bash
+# macOS/Linux
+curl -w "\nTime: %{time_total}s\n" \
+  -H "x-api-key: $ANTHROPIC_AUTH_TOKEN" \
+  -H "anthropic-version: 2023-06-01" \
+  https://claude-code.club/api/v1/models
+
+# Windows (PowerShell)
+Measure-Command {
+  Invoke-WebRequest -Uri "https://claude-code.club/api/v1/models" `
+    -Headers @{
+      "x-api-key" = $env:ANTHROPIC_AUTH_TOKEN
+      "anthropic-version" = "2023-06-01"
+    }
+}
+```
+
+3. **Check for proxy/VPN interference:**
+```bash
+# Temporarily disable proxy
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
+
+# Test again
+time claude -p "hi"
+```
+
+**If latency varies widely:**
+- May indicate network congestion
+- Check time of day patterns
+- Consider geographic distance to API servers
+- Review firewall/antivirus settings
+
 ### Configuration Optimizations
 
 **Global settings (`~/.claude/settings.json`):**
