@@ -1,0 +1,24 @@
+# Diagnostic output files
+*.diagnostic.txt
+*-report.txt
+diagnostic-*.txt
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS files
+Thumbs.db
+Desktop.ini
+._*
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
