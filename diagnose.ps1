@@ -549,18 +549,83 @@ function Test-Installation {
         } else {
             Write-Check "info" "Installation method: Unknown (manual or other)"
         }
+
+        # Verify PATH includes the directory
+        $claudeDir = Split-Path -Parent $claudeCmd.Source
+        Test-PathEnvironment -BinaryPath $claudeDir -BinaryName "claude"
     } else {
         Write-Check "error" "Claude Code: Not found in PATH"
-        Add-Recommendation "Install Claude Code: npm install -g @anthropic-ai/claude-code"
+
+        # Check common installation locations
+        $commonLocations = @(
+            "$env:APPDATA\npm",
+            "$env:ProgramFiles\nodejs",
+            "$env:LOCALAPPDATA\Programs\claude-code"
+        )
+
+        $foundLocations = @()
+        foreach ($location in $commonLocations) {
+            if (Test-Path "$location\claude.cmd") {
+                $foundLocations += $location
+                Write-Check "warn" "Claude Code found at: $location\claude.cmd (NOT in PATH)"
+                Write-VerboseLog "Found installation outside PATH"
+            }
+        }
+
+        if ($foundLocations.Count -gt 0) {
+            Write-Check "error" "PATH environment variable does not include Claude Code directory"
+            Add-Recommendation "The claude command was found but is not accessible because its directory is not in PATH"
+
+            foreach ($location in $foundLocations) {
+                Add-Recommendation "Add to PATH (User): `$env:Path += ';$location'; [Environment]::SetEnvironmentVariable('Path', `$env:Path, 'User')"
+                Add-Recommendation "Or add via System Properties > Environment Variables > Path > Edit > New > $location"
+            }
+
+            Add-Recommendation "After adding to PATH, restart PowerShell or run: `$env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User')"
+        } else {
+            Add-Recommendation "Install Claude Code: npm install -g @anthropic-ai/claude-code"
+            Add-Recommendation "If already installed via npm, ensure npm global directory is in PATH"
+        }
+    }
+}
+
+function Test-PathEnvironment {
+    param(
+        [string]$BinaryPath,
+        [string]$BinaryName
+    )
+
+    Write-VerboseLog "Checking if $BinaryPath is in PATH..."
+
+    # Get current PATH
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $systemPath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $currentPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
+
+    # Check if binary path is in any PATH
+    $inUserPath = $userPath -split ';' | Where-Object { $_ -eq $BinaryPath }
+    $inSystemPath = $systemPath -split ';' | Where-Object { $_ -eq $BinaryPath }
+
+    if ($inUserPath) {
+        Write-Check "ok" "PATH: $BinaryPath is in User PATH"
+        Write-VerboseLog "Found in User environment PATH"
+    } elseif ($inSystemPath) {
+        Write-Check "ok" "PATH: $BinaryPath is in System PATH"
+        Write-VerboseLog "Found in System environment PATH"
+    } else {
+        Write-Check "warn" "PATH: $BinaryPath not found in environment PATH variables"
+        Write-VerboseLog "Not found in User or System PATH"
+        Add-Recommendation "PATH may not be persisted. Add $BinaryPath to User or System PATH for persistence"
+        Add-Recommendation "Current session PATH: `$env:Path (temporary, lost on restart)"
+        Add-Recommendation "Persistent User PATH: [Environment]::SetEnvironmentVariable('Path', `$env:Path + ';$BinaryPath', 'User')"
     }
 
-    # Check common npm locations
-    $npmGlobalPath = "$env:APPDATA\npm"
-    if (Test-Path "$npmGlobalPath\claude.cmd") {
-        if (-not $claudeCmd) {
-            Write-Check "warn" "Claude Code found in npm global but not in PATH: $npmGlobalPath\claude.cmd"
-            Add-Recommendation "Add npm global directory to PATH: $npmGlobalPath"
-        }
+    # Check if PATH is effective in current session
+    if ($currentPath -split ';' | Where-Object { $_ -eq $BinaryPath }) {
+        Write-Check "ok" "PATH (Session): $BinaryPath is accessible in current session"
+    } else {
+        Write-Check "warn" "PATH (Session): $BinaryPath not in current session PATH"
+        Add-Recommendation "Reload environment: Restart PowerShell or run: `$env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User')"
     }
 }
 

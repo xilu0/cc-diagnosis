@@ -462,23 +462,111 @@ check_installation() {
         else
             print_check "info" "Installation method: Unknown (manual or other)"
         fi
+
+        # Verify PATH includes the directory
+        local claude_dir=$(dirname "$claude_path")
+        check_path_environment "$claude_dir" "claude"
     else
-        print_check "warn" "Claude Code: Not found in PATH"
+        print_check "error" "Claude Code: Not found in PATH"
+
+        # Check other known locations
+        local not_in_path_locations=()
+        for location in "${claude_locations[@]}"; do
+            if [[ -f "$location" ]]; then
+                not_in_path_locations+=("$location")
+                print_check "warn" "Claude Code found at: $location (NOT in PATH)"
+                verbose_log "Found installation outside PATH"
+            fi
+        done
+
+        if [[ ${#not_in_path_locations[@]} -gt 0 ]]; then
+            print_check "error" "PATH environment variable does not include Claude Code directory"
+            add_recommendation "The claude command was found but is not accessible because its directory is not in PATH"
+
+            for location in "${not_in_path_locations[@]}"; do
+                local dir=$(dirname "$location")
+                add_recommendation "Add to PATH: export PATH=\"\$PATH:$dir\""
+
+                # Detect shell and provide persistent solution
+                if [[ "$SHELL" =~ "zsh" ]]; then
+                    add_recommendation "For persistence (zsh): echo 'export PATH=\"\$PATH:$dir\"' >> ~/.zshrc && source ~/.zshrc"
+                elif [[ "$SHELL" =~ "bash" ]]; then
+                    add_recommendation "For persistence (bash): echo 'export PATH=\"\$PATH:$dir\"' >> ~/.bashrc && source ~/.bashrc"
+                else
+                    add_recommendation "For persistence: Add 'export PATH=\"\$PATH:$dir\"' to your shell config file (~/.zshrc or ~/.bashrc)"
+                fi
+            done
+
+            add_recommendation "After adding to PATH, restart your terminal or run: source ~/.zshrc (or ~/.bashrc)"
+        else
+            print_check "error" "No Claude Code installation found"
+            add_recommendation "Install Claude Code: npm install -g @anthropic-ai/claude-code"
+            add_recommendation "Or install via Homebrew: brew install claude-code"
+            add_recommendation "If already installed via npm, ensure npm global bin directory is in PATH"
+            add_recommendation "Check npm global bin: npm config get prefix (add <prefix>/bin to PATH)"
+        fi
     fi
 
-    # Check other known locations
-    for location in "${claude_locations[@]}"; do
-        if [[ -f "$location" ]] && [[ ! " ${found_locations[@]} " =~ " ${location} " ]]; then
-            print_check "warn" "Additional installation found: $location"
-            verbose_log "Multiple installations detected - may cause version conflicts"
+    # Check for multiple installations (only if claude is in PATH)
+    if [[ ${#found_locations[@]} -gt 0 ]]; then
+        for location in "${claude_locations[@]}"; do
+            if [[ -f "$location" ]] && [[ ! " ${found_locations[@]} " =~ " ${location} " ]]; then
+                print_check "warn" "Additional installation found: $location"
+                verbose_log "Multiple installations detected - may cause version conflicts"
+                add_recommendation "Multiple Claude Code installations found - consider removing duplicates"
+            fi
+        done
+    fi
+}
+
+check_path_environment() {
+    local binary_path="$1"
+    local binary_name="$2"
+
+    verbose_log "Checking if $binary_path is in PATH..."
+
+    # Check if the directory is in PATH
+    if echo "$PATH" | grep -q "$binary_path"; then
+        print_check "ok" "PATH: $binary_path is in \$PATH"
+        verbose_log "Found in current PATH environment"
+    else
+        print_check "warn" "PATH: $binary_path not found in \$PATH"
+        verbose_log "Not found in current PATH"
+        add_recommendation "PATH may not be persisted or not loaded in current session"
+        add_recommendation "Add $binary_path to PATH: export PATH=\"\$PATH:$binary_path\""
+    fi
+
+    # Check shell configuration files for PATH persistence
+    local shell_configs=()
+    if [[ "$SHELL" =~ "zsh" ]]; then
+        shell_configs=("$HOME/.zshrc" "$HOME/.zshenv")
+    elif [[ "$SHELL" =~ "bash" ]]; then
+        shell_configs=("$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile")
+    else
+        shell_configs=("$HOME/.profile")
+    fi
+
+    local found_in_config=false
+    for config_file in "${shell_configs[@]}"; do
+        if [[ -f "$config_file" ]] && grep -q "$binary_path" "$config_file" 2>/dev/null; then
+            print_check "ok" "PATH persistence: Found in $config_file"
+            verbose_log "PATH entry found in shell config: $config_file"
+            found_in_config=true
+            break
         fi
     done
 
-    if [[ ${#found_locations[@]} -eq 0 ]]; then
-        print_check "error" "No Claude Code installation found"
-        add_recommendation "Install Claude Code: npm install -g @anthropic-ai/claude-code or brew install claude-code"
-    elif [[ ${#found_locations[@]} -gt 1 ]]; then
-        add_recommendation "Multiple Claude Code installations found - consider removing duplicates"
+    if [[ "$found_in_config" == false ]]; then
+        print_check "warn" "PATH persistence: $binary_path not found in shell configuration files"
+        verbose_log "Not found in shell configs: ${shell_configs[*]}"
+
+        if [[ "$SHELL" =~ "zsh" ]]; then
+            add_recommendation "For persistent PATH, add to ~/.zshrc: echo 'export PATH=\"\$PATH:$binary_path\"' >> ~/.zshrc"
+        elif [[ "$SHELL" =~ "bash" ]]; then
+            add_recommendation "For persistent PATH, add to ~/.bashrc: echo 'export PATH=\"\$PATH:$binary_path\"' >> ~/.bashrc"
+        else
+            add_recommendation "For persistent PATH, add 'export PATH=\"\$PATH:$binary_path\"' to your shell config file"
+        fi
     fi
 }
 
