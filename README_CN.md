@@ -107,6 +107,19 @@ chmod +x diagnose.sh
 .\diagnose.ps1 -Fix
 ```
 
+## 手动排查与指南
+
+如果你不想运行自动化脚本，或希望了解每个步骤的细节，我们提供了详细的手动排查指南：
+
+- **🍎 macOS**：[macOS 手动排查指南](manual_troubleshooting_macos.md)
+- **🪟 Windows**：[Windows 手动排查指南](manual_troubleshooting_windows.md)
+
+### 🎓 不熟悉终端？
+
+如果你不熟悉使用命令行（终端或 PowerShell），请查看我们的新手入门指南：
+
+- **[终端基础入门教程](terminal_basics_tutorial.md)**：学习如何在 macOS 和 Windows 上打开和使用终端。
+
 ## 命令行选项
 
 | 选项 | 说明 |

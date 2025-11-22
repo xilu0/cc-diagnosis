@@ -107,6 +107,19 @@ chmod +x diagnose.sh
 .\diagnose.ps1 -Fix
 ```
 
+## Manual Troubleshooting & Guides
+
+If you prefer not to run the automated script, or if you want to understand each step, we provide detailed manual troubleshooting guides:
+
+- **🍎 macOS**: [Manual Troubleshooting Guide (macOS)](manual_troubleshooting_macos.md)
+- **🪟 Windows**: [Manual Troubleshooting Guide (Windows)](manual_troubleshooting_windows.md)
+
+### 🎓 New to the Terminal?
+
+If you are not familiar with using the command line (Terminal or PowerShell), check out our beginner's guide:
+
+- **[Terminal Basics Tutorial](terminal_basics_tutorial.md)**: Learn how to open the terminal and run basic commands on macOS and Windows.
+
 ## Command-Line Options
 
 | Option | Description |
